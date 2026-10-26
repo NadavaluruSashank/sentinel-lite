@@ -74,7 +74,7 @@ try:
                 "orders": "Delivered orders",
                 "late_pct": "Late rate (%)",
             }),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 

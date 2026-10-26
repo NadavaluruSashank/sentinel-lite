@@ -1,49 +1,121 @@
-# Free2Move Charging Threshold Case Study — Deliverables
+# Sentinel-lite: Delivery Intelligence
 
-## Files
-- **Free2Move_Charging_Analysis.pptx** — final business presentation (13 slides)
-- **01_data_prep.py** — data loading, validation, cleaning, feature engineering (run this first)
-- **02_sql_analysis.sql** — organized, validated SQL queries (SQLite syntax, portable to Postgres/BigQuery)
-- **03_python_eda.py** — EDA + all charts used in the presentation
-- **data/clean_rentals.csv** — cleaned + feature-engineered rental table (output of step 1)
-- **data/charging_events.csv** — derived "charging interruption" events used for the threshold analysis
-- **data/tableau_rentals_extract.csv** — Tableau-ready rentals extract (friendly column names, flags spelled out)
-- **data/tableau_threshold_extract.csv** — Tableau-ready threshold-analysis extract
-- **charts/** — all PNG charts used in the deck
+An end-to-end data project on the public Olist Brazilian e-commerce dataset: a SQL data layer, a late-delivery risk ranking model, a scoring API, and a dashboard that monitors weekly delivery performance.
 
-## Reproducing the analysis
+## Summary
+
+- **Data:** 96,470 delivered orders, 8.11% delivered late (public Olist dataset).
+- **What I built:** PostgreSQL + SQL views, a logistic-regression risk ranking, a FastAPI scoring endpoint, and a Streamlit dashboard with weekly late-rate monitoring.
+- **Result:** on a chronological holdout, the 5% of orders ranked riskiest were **2.57x** more often late than the test-period average (ROC-AUC 0.704).
+- **Finding:** late deliveries come in spikes, not evenly. The weekly late rate is typically 3 to 6% but reached 19.4% in the week of 2017-11-20 and 29.0% in the week of 2018-02-26.
+- **Honest take:** this is a modest ranking model, not a production alerting system. The score is not a calibrated probability.
+
+## How it fits together
+
 ```
-python3 01_data_prep.py       # -> data/clean_rentals.csv, data/charging_events.csv
-python3 03_python_eda.py      # -> charts/*.png
-node build_deck.js            # -> Free2Move_Charging_Analysis.pptx
+Olist CSVs -> PostgreSQL (delivered_orders view) -> src/train_final.py -> models/
+                       |                                                  |
+                       v                                                  v
+          Streamlit dashboard + monitoring                      FastAPI  POST /score
 ```
-SQL queries can be run against `data/free2move.db` (SQLite) or against the two
-CSV extracts loaded into any SQL engine.
 
-## Tableau dashboard — how to build it
-An actual Tableau Desktop session isn't available in this environment, so
-instead of a .twbx file, here is everything needed to build the dashboard in
-Tableau in a few minutes:
+## Dashboard
 
-1. Connect Tableau to `data/tableau_rentals_extract.csv` and
-   `data/tableau_threshold_extract.csv`.
-2. **Sheet 1 — Executive KPIs**: BAN tiles (Number of Records, COUNTD(VEHICLE_ID),
-   COUNTD([SESSION_TYPE]='Service Agent')) — mirrors slide 3 of the deck.
-3. **Sheet 2 — Rental behaviour**: line chart of COUNT(rows) by WEEK_NUM; bar
-   chart by HOUR; bar chart by DAY_OF_WEEK — mirrors slides 5–6.
-4. **Sheet 3 — Charging & service behaviour**: bar chart of SESSION_TYPE x
-   WAS_CHARGED; histogram of IDLE_GAP_MIN (from the threshold extract, filtered
-   to INTERRUPTED_BY = 'agent' and INTERRUPT_LEVEL_PCT = 100) — mirrors slide 7.
-5. **Sheet 4 — Charging threshold**: bar chart of LEVEL_BUCKET (sorted) with a
-   calculated field `pct_customer = COUNTD(IF [INTERRUPTED_BY]='customer' THEN
-   [VEHICLE_ID] END) / COUNTD([VEHICLE_ID])` — mirrors slide 9 (the key chart).
-6. Combine into one Dashboard/Story with a filter action on VEHICLE_ID, and a
-   text box repeating the "send agent at 90%" recommendation.
+KPIs and late-delivery rate by customer state.
 
-## Key numbers (all reproducible from the scripts above)
-- 730 sessions, 52 vehicles, single MODEL_ID, Jan 3 – Feb 24 2023
-- 615 customer rentals, 115 service-agent actions
-- Vehicles found at 100% by an agent: median 59h idle, max 305h idle
-- Charging-interruption events: 293 total, customer-claim rate 96% at 50-60%
-  battery down to 67% at 95-100%, and 51.6% at exactly 100%
-- Recommended dispatch threshold: 90% battery
+![Sentinel-lite dashboard](docs/dashboard.png)
+
+## Weekly monitoring
+
+Flags weeks where the late rate exceeds the previous 8-week average plus 3 standard deviations. The screenshot shows 7 alert weeks and a worst week of 29.0%. These are descriptive historical results, not forecasts.
+
+![Sentinel-lite monitoring page](docs/monitoring.png)
+
+## API
+
+- `GET /health` returns API status and the alert threshold.
+- `POST /score` returns a risk score and whether it triggers the alert.
+
+Interactive docs at `http://localhost:8000/docs`. Example request:
+
+```json
+{
+  "customer_state": "AL",
+  "seller_state": "SP",
+  "total_price": 120,
+  "total_freight": 35,
+  "promised_days": 20,
+  "purchase_dow": 2,
+  "purchase_hour": 14,
+  "distance_km": 2200
+}
+```
+
+In two manual checks, this long-route order scored 0.954 (alert), while a short local order scored 0.135 (no alert). That confirms the request flow and the direction of the ranking. It does not prove model quality.
+
+## Evaluation
+
+Orders are split by time, never randomly:
+
+| Block | Use |
+|---|---|
+| Oldest 50% | Only to compute seller history features |
+| Next 30% | Training |
+| Newest 20% (19,294 orders) | Test |
+
+The test period has a lower late rate (5.3%) than the training period (12.7%), which makes it a deliberately hard test.
+
+| Model | ROC-AUC | Top-5% precision | Top-5% lift |
+|---|---|---|---|
+| Logistic regression (final) | 0.704 | 13.6% | 2.57x |
+| XGBoost (compared) | 0.551 | 10.2% | 1.92x |
+
+"Top-5% lift": among the 5% of test orders the model ranks riskiest, late deliveries were 2.57 times more frequent than across all test orders.
+
+**Lessons from the iterations** (earlier scripts are kept in `experiments/`):
+- A first version of the seller-history feature used leave-one-out encoding, which leaks the target and made results look worse on the test set. It was replaced by seller history computed from an earlier time block.
+- XGBoost overfit the training period; the simpler logistic regression generalised better, so it is the final model.
+
+## Limitations
+
+- ROC-AUC 0.70 means the model ranks risk only somewhat better than chance.
+- Late deliveries here seem driven largely by period-specific events that order features cannot capture.
+- Single chronological split on one public dataset; no probability calibration. Further temporal validation would be needed before any operational use.
+- Lift is a ranking measure. It is not evidence of reduced delays or cost savings.
+
+## Run locally
+
+Assumes Python dependencies installed and Docker Desktop running. Raw data and trained models are not stored in Git.
+
+1. Start PostgreSQL: `docker compose up -d db`
+2. Download the Olist CSV files from Kaggle into `data/raw/`, then:
+
+```bash
+   source .venv/bin/activate
+   python src/load_data.py
+   docker compose exec -T db psql -U sentinel -d olist < sql/01_views.sql
+```
+
+3. Train and save the model and metrics: `python src/train_final.py`
+4. Start the API: `uvicorn app.api:app --reload --port 8000`
+5. Start the dashboard: `python -m streamlit run app/dashboard.py` (opens at `http://localhost:8501`)
+
+The database login in the code is the local demo default (`sentinel`).
+
+## Repository layout
+
+```
+app/          FastAPI service and Streamlit dashboard (+ monitoring page)
+sql/          delivered_orders view
+src/          data loading and final training script
+experiments/  earlier training iterations, kept for transparency
+docs/         screenshots
+```
+
+## Stack
+
+Python, pandas, NumPy, scikit-learn, XGBoost, PostgreSQL / SQL, FastAPI, Streamlit, Docker Compose (database).
+
+## Next steps
+
+Probability calibration, rolling re-validation over more time windows, and containerising the API and dashboard.
