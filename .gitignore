@@ -3,3 +3,8 @@ data/raw/
 __pycache__/
 .ipynb_checkpoints/
 models/
+
+# macOS
+.DS_Store
+.agents/
+.claude/
