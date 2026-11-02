@@ -2,6 +2,12 @@
 
 An end-to-end data project on the public Olist Brazilian e-commerce dataset: a SQL data layer, a late-delivery risk ranking model, a scoring API, and a dashboard that monitors weekly delivery performance.
 
+> Independent portfolio prototype. It uses **public Olist data only**: no data from Telyport or any employer. It runs locally and is not a production deployment.
+
+## Problem statement
+
+Some orders arrive after the delivery date promised to the customer. If an operations team could rank open orders by their risk of being late, it could look at the riskiest ones first. This project asks: using only information available when the order is placed, how well can late deliveries be ranked, and how should that be evaluated honestly over time?
+
 ## Summary
 
 - **Data:** 96,470 delivered orders, 8.11% delivered late (public Olist dataset).
@@ -9,6 +15,13 @@ An end-to-end data project on the public Olist Brazilian e-commerce dataset: a S
 - **Result:** on a chronological holdout, the 5% of orders ranked riskiest were **2.57x** more often late than the test-period average (ROC-AUC 0.704).
 - **Finding:** late deliveries come in spikes, not evenly. The weekly late rate is typically 3 to 6% but reached 19.4% in the week of 2017-11-20 and 29.0% in the week of 2018-02-26.
 - **Honest take:** this is a modest ranking model, not a production alerting system. The score is not a calibrated probability.
+
+## Dataset
+
+- **Source:** [Brazilian E-Commerce Public Dataset by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) on Kaggle (real, anonymised marketplace orders from 2016–2018, published by Olist). Check the Kaggle page for the licence terms.
+- **Used here:** 96,470 delivered orders (status `delivered` with a recorded delivery date), built with the `delivered_orders` SQL view in `sql/01_views.sql`.
+- **Target:** late = delivered after the estimated delivery date. 8.11% of these orders were late.
+- Raw CSVs are not stored in this repository; download them from Kaggle (see *Run locally*).
 
 ## How it fits together
 
@@ -119,3 +132,8 @@ Python, pandas, NumPy, scikit-learn, XGBoost, PostgreSQL / SQL, FastAPI, Streaml
 ## Next steps
 
 Probability calibration, rolling re-validation over more time windows, and containerising the API and dashboard.
+
+## Author
+
+**Nadavaluru Sashank** · Data Scientist · MSc Data Science & AI, DSTI School of Engineering, Paris
+[Portfolio](https://nadavalurusashank.github.io/Portfolio_website/) · [LinkedIn](https://www.linkedin.com/in/sashank-nadavaluru-425617270) · [GitHub](https://github.com/NadavaluruSashank)
