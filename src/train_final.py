@@ -1,10 +1,14 @@
-import json, os, joblib
-import numpy as np, pandas as pd
-from sqlalchemy import create_engine
+import json
+import os
+
+import joblib
+import numpy as np
+import pandas as pd
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import average_precision_score, precision_score, recall_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import roc_auc_score, average_precision_score, precision_score, recall_score
+from sqlalchemy import create_engine
 from xgboost import XGBClassifier
 
 engine = create_engine("postgresql+psycopg2://sentinel:sentinel@localhost:5432/olist")
@@ -65,7 +69,8 @@ print(f"history={len(hist)} train={len(tr)} test={len(te)} late rate: hist={hist
 
 def metrics(name, p, thr):
     pred = (p >= thr).astype(int)
-    kk = int(0.05 * len(yte)); idx = np.argsort(-p)[:kk]
+    kk = int(0.05 * len(yte))
+    idx = np.argsort(-p)[:kk]
     top = yte.values[idx]
     m = dict(model=name, threshold=thr,
              roc_auc=round(float(roc_auc_score(yte, p)), 3),
@@ -75,7 +80,8 @@ def metrics(name, p, thr):
              top5pct_precision=round(float(top.mean()), 3),
              top5pct_recall=round(float(top.sum() / yte.sum()), 3),
              top5pct_lift=round(float(top.mean() / base_rate), 2))
-    print(m); return m
+    print(m)
+    return m
 
 med = Xtr.median()
 lr = Pipeline([("sc", StandardScaler()), ("lr", LogisticRegression(max_iter=2000, class_weight="balanced"))])
@@ -94,7 +100,8 @@ res = [metrics("Logistic regression (final)", p_lr, 0.5),
 
 cut95 = float(np.quantile(p_lr, 0.95))
 os.makedirs("models", exist_ok=True)
-json.dump(res, open("models/metrics.json", "w"), indent=2)
+with open("models/metrics.json", "w") as f:
+    json.dump(res, f, indent=2)
 joblib.dump({"model": lr, "columns": list(Xtr.columns), "medians": med.to_dict(),
              "alert_threshold": cut95}, "models/late_risk_lr.joblib")
 print("LR top-5% score cutoff:", round(cut95, 3))

@@ -1,5 +1,7 @@
 # Sentinel-lite: Delivery Intelligence
 
+[![CI](https://github.com/NadavaluruSashank/sentinel-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/NadavaluruSashank/sentinel-lite/actions/workflows/ci.yml)
+
 An end-to-end data project on the public Olist Brazilian e-commerce dataset: a SQL data layer, a late-delivery risk ranking model, a scoring API, and a dashboard that monitors weekly delivery performance.
 
 > Independent portfolio prototype. It uses **public Olist data only**: no data from Telyport or any employer. It runs locally and is not a production deployment.
@@ -115,12 +117,23 @@ Assumes Python dependencies installed and Docker Desktop running. Raw data and t
 
 The database login in the code is the local demo default (`sentinel`).
 
+## Tests and CI
+
+GitHub Actions runs `ruff` and `pytest` on every push and pull request (`.github/workflows/ci.yml`). The tests cover the feature logic (distance, derived features, column alignment), the weekly alert rule, and the API endpoints. API tests use a small stand-in model, so CI needs neither Postgres nor the trained model.
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .
+pytest
+```
+
 ## Repository layout
 
 ```
 app/          FastAPI service and Streamlit dashboard (+ monitoring page)
 sql/          delivered_orders view
-src/          data loading and final training script
+src/          data loading, final training script, shared feature logic
+tests/        pytest suite run in CI
 experiments/  earlier training iterations, kept for transparency
 docs/         screenshots
 ```

@@ -2,6 +2,8 @@ import pandas as pd
 import streamlit as st
 from sqlalchemy import create_engine
 
+from src.features import weekly_alerts
+
 st.title("Delivery performance monitoring")
 st.caption("Weekly late-delivery rate with an automatic alert when it rises well above its recent level.")
 
@@ -16,11 +18,7 @@ def load():
     """
     return pd.read_sql(q, engine)
 
-df = load()
-prev = df["late_pct"].shift(1)
-df["baseline"] = prev.rolling(8, min_periods=4).mean()
-df["spread"] = prev.rolling(8, min_periods=4).std()
-df["alert"] = df["late_pct"] > df["baseline"] + 3 * df["spread"].clip(lower=1.0)
+df = weekly_alerts(load())
 
 c1, c2, c3 = st.columns(3)
 c1.metric("Weeks analysed", len(df))
