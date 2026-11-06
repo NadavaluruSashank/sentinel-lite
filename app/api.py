@@ -1,15 +1,26 @@
-from typing import Optional
+import os
+from functools import lru_cache
+
 import joblib
 import pandas as pd
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-bundle = joblib.load("models/late_risk_lr.joblib")
-model, cols = bundle["model"], bundle["columns"]
-medians = pd.Series(bundle["medians"])
-threshold = bundle["alert_threshold"]
+from src.features import add_order_features, to_model_matrix
+
+MODEL_PATH = os.getenv("SENTINEL_MODEL_PATH", "models/late_risk_lr.joblib")
+
+
+@lru_cache(maxsize=1)
+def get_bundle():
+    """Load the trained model bundle once, on first request (not at import time)."""
+    bundle = joblib.load(os.getenv("SENTINEL_MODEL_PATH", MODEL_PATH))
+    bundle["medians"] = pd.Series(bundle["medians"])
+    return bundle
+
 
 app = FastAPI(title="Sentinel late-delivery risk API")
+
 
 class Order(BaseModel):
     customer_state: str
@@ -21,22 +32,22 @@ class Order(BaseModel):
     promised_days: float
     purchase_dow: int
     purchase_hour: int
-    distance_km: Optional[float] = None
-    weight_g: Optional[float] = None
-    vol_cm3: Optional[float] = None
-    seller_late_rate: Optional[float] = None
+    distance_km: float | None = None
+    weight_g: float | None = None
+    vol_cm3: float | None = None
+    seller_late_rate: float | None = None
     seller_orders: float = 0
+
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "alert_threshold": round(threshold, 3)}
+    return {"status": "ok", "alert_threshold": round(get_bundle()["alert_threshold"], 3)}
+
 
 @app.post("/score")
 def score(o: Order):
-    f = o.model_dump()
-    f["same_state"] = int(o.customer_state == o.seller_state)
-    f["freight_ratio"] = o.total_freight / (o.total_price + 1)
-    X = pd.get_dummies(pd.DataFrame([f]), columns=["customer_state", "seller_state"])
-    X = X.reindex(columns=cols, fill_value=0).astype(float).fillna(medians)
-    risk = float(model.predict_proba(X)[0, 1])
-    return {"late_risk": round(risk, 3), "high_risk_alert": risk >= threshold}
+    b = get_bundle()
+    df = add_order_features(pd.DataFrame([o.model_dump()]))
+    X = to_model_matrix(df, b["columns"], b["medians"])
+    risk = float(b["model"].predict_proba(X)[0, 1])
+    return {"late_risk": round(risk, 3), "high_risk_alert": risk >= b["alert_threshold"]}
